@@ -34,15 +34,11 @@ async function registerCommands() {
     .setName("setup")
     .setDescription("إعداد روم اللوبي")
     .addChannelOption(o =>
-      o.setName("panel")
-        .setDescription("روم اللوبي panel")
-        .setRequired(true)
-        .addChannelTypes(ChannelType.GuildText))
+      o.setName("panel").setDescription("روم اللوبي panel")
+        .setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption(o =>
-      o.setName("category")
-        .setDescription("كاتيجوري الرومات")
-        .setRequired(true)
-        .addChannelTypes(ChannelType.GuildCategory))
+      o.setName("category").setDescription("كاتيجوري الرومات")
+        .setRequired(true).addChannelTypes(ChannelType.GuildCategory))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
   const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
@@ -58,7 +54,8 @@ function buildLobbyEmbed(data) {
     .setTitle(`Lobby • ${data.game}`)
     .setDescription(
       `الحالة: ${data.locked ? "🔴 مغلق" : "🟢 مفتوح"}\n` +
-      `الأعضاء: ${data.members.length}/5`
+      `الأعضاء: ${data.members.length}/5\n` +
+      `المالك: <@${data.owner}>`
     )
     .setImage("https://i.imgur.com/your-image.png");
 }
@@ -73,6 +70,10 @@ function buildControls(channelId) {
       .setCustomId(`unlock:${channelId}`)
       .setLabel("Unlock")
       .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`transfer:${channelId}`)
+      .setLabel("Transfer")
+      .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`close:${channelId}`)
       .setLabel("Close")
@@ -89,7 +90,7 @@ function setupLobby(client, store) {
   client.on("interactionCreate", async (i) => {
     try {
 
-      // ================= SETUP =================
+      // SETUP
       if (i.isChatInputCommand() && i.commandName === "setup") {
         await i.deferReply({ ephemeral: true });
 
@@ -117,9 +118,8 @@ function setupLobby(client, store) {
         return i.editReply("تم الإعداد.");
       }
 
-      // ================= GAME SELECT =================
+      // GAME SELECT
       if (i.isStringSelectMenu() && i.customId === "game") {
-
         const game = i.values[0];
 
         const row = new ActionRowBuilder().addComponents(
@@ -140,7 +140,7 @@ function setupLobby(client, store) {
         });
       }
 
-      // ================= CREATE =================
+      // CREATE BUTTON
       if (i.isButton() && i.customId.startsWith("create:")) {
 
         const existing = findUserLobby(store, i.user.id);
@@ -165,7 +165,7 @@ function setupLobby(client, store) {
         return i.showModal(modal);
       }
 
-      // ================= CREATE MODAL =================
+      // CREATE MODAL
       if (i.isModalSubmit() && i.customId.startsWith("modal:")) {
         await i.deferReply({ ephemeral: true });
 
@@ -191,19 +191,20 @@ function setupLobby(client, store) {
           locked: false
         };
 
-        store.set(lobbyKey(ch.id), data);
-
-        await ch.send({
+        const msg = await ch.send({
           embeds: [buildLobbyEmbed(data)],
           components: [buildControls(ch.id)]
         });
+
+        data.messageId = msg.id;
+        store.set(lobbyKey(ch.id), data);
 
         await ch.send(`UID صاحب اللوبي: **${uid}**`);
 
         return i.editReply(`تم إنشاء اللوبي ${ch}`);
       }
 
-      // ================= FIND =================
+      // FIND
       if (i.isButton() && i.customId.startsWith("find:")) {
         await i.deferReply({ ephemeral: true });
 
@@ -231,13 +232,12 @@ function setupLobby(client, store) {
         });
       }
 
-      // ================= JOIN =================
+      // JOIN
       if (i.isStringSelectMenu() && i.customId === "join") {
 
         const key = i.values[0];
         const data = store.get(key);
-        if (!data)
-          return i.reply({ content: "اللوبي غير موجود.", ephemeral: true });
+        if (!data) return i.reply({ content: "اللوبي غير موجود.", ephemeral: true });
 
         if (data.locked)
           return i.reply({ content: "اللوبي مقفل.", ephemeral: true });
@@ -265,7 +265,7 @@ function setupLobby(client, store) {
         return i.showModal(modal);
       }
 
-      // ================= JOIN MODAL =================
+      // JOIN MODAL
       if (i.isModalSubmit() && i.customId.startsWith("joinmodal:")) {
         await i.deferReply({ ephemeral: true });
 
@@ -290,12 +290,10 @@ function setupLobby(client, store) {
         return i.editReply(`تم إدخالك ${ch}`);
       }
 
-      // ================= CONTROLS =================
+      // CONTROLS
       if (i.isButton() &&
-        (i.customId.startsWith("lock:") ||
-         i.customId.startsWith("unlock:") ||
-         i.customId.startsWith("close:") ||
-         i.customId.startsWith("leave:"))) {
+        ["lock", "unlock", "close", "leave", "transfer"]
+          .some(a => i.customId.startsWith(a))) {
 
         await i.deferReply({ ephemeral: true });
 
@@ -308,25 +306,27 @@ function setupLobby(client, store) {
 
         if (action === "lock") {
           if (i.user.id !== data.owner)
-            return i.editReply("فقط صاحب اللوبي يستطيع القفل.");
+            return i.editReply("فقط المالك يستطيع القفل.");
           data.locked = true;
         }
 
         if (action === "unlock") {
           if (i.user.id !== data.owner)
-            return i.editReply("فقط صاحب اللوبي يستطيع الفتح.");
+            return i.editReply("فقط المالك يستطيع الفتح.");
           data.locked = false;
         }
 
         if (action === "close") {
           if (i.user.id !== data.owner)
-            return i.editReply("فقط صاحب اللوبي يستطيع الإغلاق.");
+            return i.editReply("فقط المالك يستطيع الإغلاق.");
           await ch.delete();
           store.del(key);
           return i.editReply("تم إغلاق اللوبي.");
         }
 
         if (action === "leave") {
+          const leavingOwner = i.user.id === data.owner;
+
           data.members = data.members.filter(m => m.id !== i.user.id);
           await ch.permissionOverwrites.delete(i.user.id).catch(() => {});
 
@@ -335,16 +335,68 @@ function setupLobby(client, store) {
             store.del(key);
             return i.editReply("تم حذف اللوبي لعدم وجود أعضاء.");
           }
+
+          if (leavingOwner) {
+            const newOwner = data.members[0];
+            data.owner = newOwner.id;
+            await ch.send(`تم نقل ملكية اللوبي إلى <@${newOwner.id}> تلقائياً.`);
+          }
+        }
+
+        if (action === "transfer") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط المالك يستطيع نقل الملكية.");
+
+          const modal = new ModalBuilder()
+            .setCustomId(`transfermodal:${channelId}`)
+            .setTitle("نقل الملكية")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("member")
+                  .setLabel("اكتب ID العضو")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+              )
+            );
+
+          return i.showModal(modal);
         }
 
         store.set(key, data);
 
-        const messages = await ch.messages.fetch({ limit: 10 });
-        const botMsg = messages.find(m => m.author.id === client.user.id);
-        if (botMsg)
-          await botMsg.edit({ embeds: [buildLobbyEmbed(data)] });
+        try {
+          const msg = await ch.messages.fetch(data.messageId);
+          await msg.edit({
+            embeds: [buildLobbyEmbed(data)],
+            components: [buildControls(channelId)]
+          });
+        } catch {}
 
         return i.editReply("تم التحديث.");
+      }
+
+      // TRANSFER MODAL
+      if (i.isModalSubmit() && i.customId.startsWith("transfermodal:")) {
+        await i.deferReply({ ephemeral: true });
+
+        const channelId = i.customId.split(":")[1];
+        const key = lobbyKey(channelId);
+        const data = store.get(key);
+        if (!data) return i.editReply("اللوبي غير موجود.");
+
+        const memberId = i.fields.getTextInputValue("member");
+
+        if (!data.members.some(m => m.id === memberId))
+          return i.editReply("هذا العضو ليس داخل اللوبي.");
+
+        data.owner = memberId;
+        store.set(key, data);
+
+        const ch = await i.guild.channels.fetch(channelId);
+        await ch.send(`تم نقل ملكية اللوبي إلى <@${memberId}>`);
+
+        return i.editReply("تم نقل الملكية.");
       }
 
     } catch (e) {
