@@ -34,11 +34,15 @@ async function registerCommands() {
     .setName("setup")
     .setDescription("إعداد روم اللوبي")
     .addChannelOption(o =>
-      o.setName("panel").setDescription("روم اللوبي panel")
-        .setRequired(true).addChannelTypes(ChannelType.GuildText))
+      o.setName("panel")
+        .setDescription("روم اللوبي panel")
+        .setRequired(true)
+        .addChannelTypes(ChannelType.GuildText))
     .addChannelOption(o =>
-      o.setName("category").setDescription("كاتيجوري الرومات")
-        .setRequired(true).addChannelTypes(ChannelType.GuildCategory))
+      o.setName("category")
+        .setDescription("كاتيجوري الرومات")
+        .setRequired(true)
+        .addChannelTypes(ChannelType.GuildCategory))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
   const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
@@ -49,34 +53,6 @@ async function registerCommands() {
   );
 }
 
-// FIND PLAYERS (FIX)
-if (i.isButton() && i.customId.startsWith("find:")) {
-  await i.deferReply({ ephemeral: true });
-
-  const game = i.customId.split(":")[1];
-
-  const lobbies = store.all()
-    .filter(x => x.key.startsWith("lobby:") && x.value.game === game);
-
-  if (!lobbies.length)
-    return i.editReply("لا يوجد لوبيات.");
-
-  const options = lobbies.map(l => ({
-    label: l.value.uid,
-    value: l.key,
-    description: `${l.value.locked ? "🔴" : "🟢"} ${l.value.members.length}/5`,
-  }));
-
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId("join")
-    .setPlaceholder("اختر لوبي")
-    .addOptions(options);
-
-  return i.editReply({
-    components: [new ActionRowBuilder().addComponents(menu)]
-  });
-}
-
 function buildLobbyEmbed(data) {
   return new EmbedBuilder()
     .setTitle(`Lobby • ${data.game}`)
@@ -84,7 +60,7 @@ function buildLobbyEmbed(data) {
       `الحالة: ${data.locked ? "🔴 مغلق" : "🟢 مفتوح"}\n` +
       `الأعضاء: ${data.members.length}/5`
     )
-    .setImage("https://i.imgur.com/your-image.png"); // رجّع صورتك هنا
+    .setImage("https://i.imgur.com/your-image.png");
 }
 
 function buildControls(channelId) {
@@ -113,7 +89,7 @@ function setupLobby(client, store) {
   client.on("interactionCreate", async (i) => {
     try {
 
-      // SETUP
+      // ================= SETUP =================
       if (i.isChatInputCommand() && i.commandName === "setup") {
         await i.deferReply({ ephemeral: true });
 
@@ -141,16 +117,20 @@ function setupLobby(client, store) {
         return i.editReply("تم الإعداد.");
       }
 
-      // GAME SELECT (FIXED – لا يختفي المينيو)
+      // ================= GAME SELECT =================
       if (i.isStringSelectMenu() && i.customId === "game") {
 
         const game = i.values[0];
 
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`create:${game}`)
-            .setLabel("Create Lobby").setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`find:${game}`)
-            .setLabel("Find Players").setStyle(ButtonStyle.Primary)
+          new ButtonBuilder()
+            .setCustomId(`create:${game}`)
+            .setLabel("Create Lobby")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`find:${game}`)
+            .setLabel("Find Players")
+            .setStyle(ButtonStyle.Primary)
         );
 
         return i.reply({
@@ -160,8 +140,9 @@ function setupLobby(client, store) {
         });
       }
 
-      // CREATE BUTTON
+      // ================= CREATE BUTTON =================
       if (i.isButton() && i.customId.startsWith("create:")) {
+
         const existing = findUserLobby(store, i.user.id);
         if (existing)
           return i.reply({ content: "أنت داخل لوبي بالفعل.", ephemeral: true });
@@ -170,22 +151,21 @@ function setupLobby(client, store) {
 
         const modal = new ModalBuilder()
           .setCustomId(`modal:${game}`)
-          .setTitle("Create Lobby");
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("id")
-              .setLabel("UID داخل اللعبة")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-          )
-        );
+          .setTitle("Create Lobby")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("id")
+                .setLabel("UID داخل اللعبة")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            )
+          );
 
         return i.showModal(modal);
       }
 
-      // CREATE MODAL
+      // ================= CREATE MODAL =================
       if (i.isModalSubmit() && i.customId.startsWith("modal:")) {
         await i.deferReply({ ephemeral: true });
 
@@ -223,7 +203,72 @@ function setupLobby(client, store) {
         return i.editReply(`تم إنشاء اللوبي ${ch}`);
       }
 
-      // JOIN MODAL (BUG FIXED)
+      // ================= FIND PLAYERS =================
+      if (i.isButton() && i.customId.startsWith("find:")) {
+        await i.deferReply({ ephemeral: true });
+
+        const game = i.customId.split(":")[1];
+
+        const lobbies = store.all()
+          .filter(x => x.key.startsWith("lobby:") && x.value.game === game);
+
+        if (!lobbies.length)
+          return i.editReply("لا يوجد لوبيات.");
+
+        const options = lobbies.map(l => ({
+          label: l.value.uid,
+          value: l.key,
+          description: `${l.value.locked ? "🔴" : "🟢"} ${l.value.members.length}/5`,
+        }));
+
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId("join")
+          .setPlaceholder("اختر لوبي")
+          .addOptions(options);
+
+        return i.editReply({
+          components: [new ActionRowBuilder().addComponents(menu)]
+        });
+      }
+
+      // ================= JOIN SELECT =================
+      if (i.isStringSelectMenu() && i.customId === "join") {
+
+        const key = i.values[0];
+        const data = store.get(key);
+        if (!data)
+          return i.reply({ content: "اللوبي غير موجود.", ephemeral: true });
+
+        if (data.members.some(m => m.id === i.user.id))
+          return i.reply({ content: "أنت داخل هذا اللوبي بالفعل.", ephemeral: true });
+
+        if (data.locked)
+          return i.reply({ content: "اللوبي مقفل.", ephemeral: true });
+
+        if (isFull(data))
+          return i.reply({ content: "اللوبي ممتلئ.", ephemeral: true });
+
+        const existing = findUserLobby(store, i.user.id);
+        if (existing)
+          return i.reply({ content: "أنت داخل لوبي آخر بالفعل.", ephemeral: true });
+
+        const modal = new ModalBuilder()
+          .setCustomId(`joinmodal:${key}`)
+          .setTitle("أدخل UID")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("uid")
+                .setLabel("UID داخل اللعبة")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            )
+          );
+
+        return i.showModal(modal);
+      }
+
+      // ================= JOIN MODAL =================
       if (i.isModalSubmit() && i.customId.startsWith("joinmodal:")) {
         await i.deferReply({ ephemeral: true });
 
