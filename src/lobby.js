@@ -49,6 +49,34 @@ async function registerCommands() {
   );
 }
 
+// FIND PLAYERS (FIX)
+if (i.isButton() && i.customId.startsWith("find:")) {
+  await i.deferReply({ ephemeral: true });
+
+  const game = i.customId.split(":")[1];
+
+  const lobbies = store.all()
+    .filter(x => x.key.startsWith("lobby:") && x.value.game === game);
+
+  if (!lobbies.length)
+    return i.editReply("لا يوجد لوبيات.");
+
+  const options = lobbies.map(l => ({
+    label: l.value.uid,
+    value: l.key,
+    description: `${l.value.locked ? "🔴" : "🟢"} ${l.value.members.length}/5`,
+  }));
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("join")
+    .setPlaceholder("اختر لوبي")
+    .addOptions(options);
+
+  return i.editReply({
+    components: [new ActionRowBuilder().addComponents(menu)]
+  });
+}
+
 function buildLobbyEmbed(data) {
   return new EmbedBuilder()
     .setTitle(`Lobby • ${data.game}`)
