@@ -1,17 +1,16 @@
-// index.js
 require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 const { createStore } = require("./src/store");
 const { registerCommands, setupLobby } = require("./src/lobby");
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds],
 });
 
 const store = createStore("data.json");
 
 client.once("ready", async () => {
-  console.log(`Lobby Bot Ready: ${client.user.tag}`);
+  console.log("Lobby Bot Ready");
   await registerCommands();
 });
 
