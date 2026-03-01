@@ -56,7 +56,7 @@ function buildLobbyEmbed(data) {
       `الحالة: ${data.locked ? "🔴 مغلق" : "🟢 مفتوح"}\n` +
       `الأعضاء: ${data.members.length}/5`
     )
-    .setImage("https://i.imgur.com/your-image.png");
+    .setImage(process.env.EMBED_IMAGE);
 }
 
 function buildControls(channelId) {
