@@ -140,7 +140,7 @@ function setupLobby(client, store) {
         });
       }
 
-      // ================= CREATE BUTTON =================
+      // ================= CREATE =================
       if (i.isButton() && i.customId.startsWith("create:")) {
 
         const existing = findUserLobby(store, i.user.id);
@@ -203,7 +203,7 @@ function setupLobby(client, store) {
         return i.editReply(`تم إنشاء اللوبي ${ch}`);
       }
 
-      // ================= FIND PLAYERS =================
+      // ================= FIND =================
       if (i.isButton() && i.customId.startsWith("find:")) {
         await i.deferReply({ ephemeral: true });
 
@@ -231,16 +231,13 @@ function setupLobby(client, store) {
         });
       }
 
-      // ================= JOIN SELECT =================
+      // ================= JOIN =================
       if (i.isStringSelectMenu() && i.customId === "join") {
 
         const key = i.values[0];
         const data = store.get(key);
         if (!data)
           return i.reply({ content: "اللوبي غير موجود.", ephemeral: true });
-
-        if (data.members.some(m => m.id === i.user.id))
-          return i.reply({ content: "أنت داخل هذا اللوبي بالفعل.", ephemeral: true });
 
         if (data.locked)
           return i.reply({ content: "اللوبي مقفل.", ephemeral: true });
@@ -291,6 +288,63 @@ function setupLobby(client, store) {
         await ch.send(`UID اللاعب <@${i.user.id}>: **${uid}**`);
 
         return i.editReply(`تم إدخالك ${ch}`);
+      }
+
+      // ================= CONTROLS =================
+      if (i.isButton() &&
+        (i.customId.startsWith("lock:") ||
+         i.customId.startsWith("unlock:") ||
+         i.customId.startsWith("close:") ||
+         i.customId.startsWith("leave:"))) {
+
+        await i.deferReply({ ephemeral: true });
+
+        const [action, channelId] = i.customId.split(":");
+        const key = lobbyKey(channelId);
+        const data = store.get(key);
+        if (!data) return i.editReply("اللوبي غير موجود.");
+
+        const ch = await i.guild.channels.fetch(channelId);
+
+        if (action === "lock") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط صاحب اللوبي يستطيع القفل.");
+          data.locked = true;
+        }
+
+        if (action === "unlock") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط صاحب اللوبي يستطيع الفتح.");
+          data.locked = false;
+        }
+
+        if (action === "close") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط صاحب اللوبي يستطيع الإغلاق.");
+          await ch.delete();
+          store.del(key);
+          return i.editReply("تم إغلاق اللوبي.");
+        }
+
+        if (action === "leave") {
+          data.members = data.members.filter(m => m.id !== i.user.id);
+          await ch.permissionOverwrites.delete(i.user.id).catch(() => {});
+
+          if (data.members.length === 0) {
+            await ch.delete();
+            store.del(key);
+            return i.editReply("تم حذف اللوبي لعدم وجود أعضاء.");
+          }
+        }
+
+        store.set(key, data);
+
+        const messages = await ch.messages.fetch({ limit: 10 });
+        const botMsg = messages.find(m => m.author.id === client.user.id);
+        if (botMsg)
+          await botMsg.edit({ embeds: [buildLobbyEmbed(data)] });
+
+        return i.editReply("تم التحديث.");
       }
 
     } catch (e) {
