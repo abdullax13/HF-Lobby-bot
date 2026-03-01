@@ -118,7 +118,8 @@ function setupLobby(client, store) {
         const embed = new EmbedBuilder()
           .setTitle("Rising Flames")
           .setDescription("اختر لعبتك")
-          .setImage("https://i.imgur.com/your-image.png");
+          // ✅ التعديل الوحيد: الصورة من Railway Variables
+          .setImage(process.env.PANEL_IMAGE || process.env.EMBED_IMAGE);
 
         const menu = new StringSelectMenuBuilder()
           .setCustomId("game")
@@ -231,7 +232,7 @@ function setupLobby(client, store) {
         if (!lobbies.length)
           return i.reply({ content: "لا يوجد لوبيات.", ephemeral: true });
 
-        // ✅ label = يوزر المالك فقط
+        // label = يوزر المالك فقط
         const options = await Promise.all(
           lobbies.map(async (l) => {
             const ownerName = await getDisplayName(i.guild, l.value.owner);
@@ -376,7 +377,6 @@ function setupLobby(client, store) {
           if (i.user.id !== data.owner)
             return i.reply({ content: "فقط المالك يستطيع نقل الملكية.", ephemeral: true });
 
-          // ✅ الخيارات تظهر يوزرات الأعضاء بدل ID
           const options = await Promise.all(
             data.members
               .filter(m => m.id !== data.owner)
