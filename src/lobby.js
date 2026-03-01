@@ -22,6 +22,13 @@ function isFull(l) {
   return (l.members?.length ?? 0) >= 5;
 }
 
+function findUserLobby(store, userId) {
+  return store.all().find(l =>
+    l.key.startsWith("lobby:") &&
+    l.value.members.includes(userId)
+  );
+}
+
 async function registerCommands() {
   const cmd = new SlashCommandBuilder()
     .setName("setup")
@@ -42,6 +49,40 @@ async function registerCommands() {
   );
 }
 
+function buildLobbyEmbed(data) {
+  return new EmbedBuilder()
+    .setTitle(`Lobby • ${data.game}`)
+    .setDescription(
+      `الحالة: ${data.locked ? "🔴 مغلق" : "🟢 مفتوح"}\n` +
+      `الأعضاء: ${data.members.length}/5`
+    )
+    .setImage("https://i.imgur.com/your-image.png"); // ضع رابط صورتك هنا
+}
+
+function buildControls(channelId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`lock:${channelId}`)
+      .setLabel("Lock")
+      .setStyle(ButtonStyle.Danger),
+
+    new ButtonBuilder()
+      .setCustomId(`unlock:${channelId}`)
+      .setLabel("Unlock")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId(`close:${channelId}`)
+      .setLabel("Close")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId(`leave:${channelId}`)
+      .setLabel("Leave")
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
 function setupLobby(client, store) {
 
   client.on("interactionCreate", async (i) => {
@@ -56,7 +97,8 @@ function setupLobby(client, store) {
 
         const embed = new EmbedBuilder()
           .setTitle("Rising Flames")
-          .setDescription("اختر لعبتك");
+          .setDescription("اختر لعبتك")
+          .setImage("https://i.imgur.com/your-image.png"); // ضع رابط صورتك
 
         const menu = new StringSelectMenuBuilder()
           .setCustomId("game")
@@ -94,6 +136,11 @@ function setupLobby(client, store) {
       if (i.isButton() && i.customId.startsWith("create:")) {
         const game = i.customId.split(":")[1];
 
+        // منع إنشاء لوبي إذا كان داخل واحد
+        const existing = findUserLobby(store, i.user.id);
+        if (existing)
+          return i.reply({ content: "أنت داخل لوبي بالفعل.", ephemeral: true });
+
         const modal = new ModalBuilder()
           .setCustomId(`modal:${game}`)
           .setTitle("Create Lobby");
@@ -127,11 +174,18 @@ function setupLobby(client, store) {
           ]
         });
 
-        store.set(lobbyKey(ch.id), {
+        const data = {
           game,
           owner: i.user.id,
           members: [i.user.id],
           locked: false
+        };
+
+        store.set(lobbyKey(ch.id), data);
+
+        await ch.send({
+          embeds: [buildLobbyEmbed(data)],
+          components: [buildControls(ch.id)]
         });
 
         return i.editReply(`تم إنشاء اللوبي ${ch}`);
@@ -142,6 +196,7 @@ function setupLobby(client, store) {
         await i.deferReply({ ephemeral: true });
 
         const game = i.customId.split(":")[1];
+
         const lobbies = store.all()
           .filter(x => x.key.startsWith("lobby:") && x.value.game === game);
 
@@ -151,7 +206,7 @@ function setupLobby(client, store) {
         const options = lobbies.map(l => ({
           label: l.key.split(":")[1],
           value: l.key,
-          description: `${l.value.members.length}/5`,
+          description: `${l.value.locked ? "🔴" : "🟢"} ${l.value.members.length}/5`,
         }));
 
         const menu = new StringSelectMenuBuilder()
@@ -172,8 +227,19 @@ function setupLobby(client, store) {
         const data = store.get(key);
         if (!data) return i.editReply("اللوبي غير موجود.");
 
-        if (data.locked) return i.editReply("اللوبي مقفل.");
-        if (isFull(data)) return i.editReply("اللوبي ممتلئ.");
+        if (data.members.includes(i.user.id))
+          return i.editReply("أنت داخل هذا اللوبي بالفعل.");
+
+        if (data.locked)
+          return i.editReply("اللوبي مقفل.");
+
+        if (isFull(data))
+          return i.editReply("اللوبي ممتلئ.");
+
+        // منع دخول أكثر من لوبي
+        const existing = findUserLobby(store, i.user.id);
+        if (existing)
+          return i.editReply("أنت داخل لوبي آخر بالفعل.");
 
         const channelId = key.split(":")[1];
         const ch = await i.guild.channels.fetch(channelId);
@@ -186,7 +252,74 @@ function setupLobby(client, store) {
         data.members.push(i.user.id);
         store.set(key, data);
 
+        await ch.messages.fetch({ limit: 1 }).then(async msgs => {
+          const msg = msgs.first();
+          if (msg) await msg.edit({ embeds: [buildLobbyEmbed(data)] });
+        });
+
         return i.editReply(`تم إدخالك ${ch}`);
+      }
+
+      // LOCK / UNLOCK / CLOSE / LEAVE
+      if (i.isButton() &&
+        (i.customId.startsWith("lock:") ||
+         i.customId.startsWith("unlock:") ||
+         i.customId.startsWith("close:") ||
+         i.customId.startsWith("leave:"))
+      ) {
+        await i.deferReply({ ephemeral: true });
+
+        const [action, channelId] = i.customId.split(":");
+        const key = lobbyKey(channelId);
+        const data = store.get(key);
+        if (!data) return i.editReply("اللوبي غير موجود.");
+
+        const ch = await i.guild.channels.fetch(channelId);
+
+        if (action === "lock") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط صاحب اللوبي يستطيع القفل.");
+          data.locked = true;
+          store.set(key, data);
+        }
+
+        if (action === "unlock") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط صاحب اللوبي يستطيع الفتح.");
+          data.locked = false;
+          store.set(key, data);
+        }
+
+        if (action === "close") {
+          if (i.user.id !== data.owner)
+            return i.editReply("فقط صاحب اللوبي يستطيع الإغلاق.");
+          await ch.delete();
+          store.del(key);
+          return i.editReply("تم إغلاق اللوبي.");
+        }
+
+        if (action === "leave") {
+          if (!data.members.includes(i.user.id))
+            return i.editReply("أنت لست داخل هذا اللوبي.");
+
+          data.members = data.members.filter(m => m !== i.user.id);
+          store.set(key, data);
+
+          await ch.permissionOverwrites.delete(i.user.id).catch(() => {});
+
+          if (data.members.length === 0) {
+            await ch.delete();
+            store.del(key);
+            return i.editReply("تم حذف اللوبي لعدم وجود أعضاء.");
+          }
+        }
+
+        await ch.messages.fetch({ limit: 1 }).then(async msgs => {
+          const msg = msgs.first();
+          if (msg) await msg.edit({ embeds: [buildLobbyEmbed(data)] });
+        });
+
+        return i.editReply("تم التحديث.");
       }
 
     } catch (e) {
