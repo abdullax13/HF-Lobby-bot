@@ -56,7 +56,7 @@ function buildLobbyEmbed(data) {
       `الحالة: ${data.locked ? "🔴 مغلق" : "🟢 مفتوح"}\n` +
       `الأعضاء: ${data.members.length}/5`
     )
-    .setImage(process.env.EMBED_IMAGE);
+    .setImage(process.env.EMBED_IMAGE || null);
 }
 
 function buildControls(channelId) {
@@ -95,7 +95,7 @@ function setupLobby(client, store) {
         const embed = new EmbedBuilder()
           .setTitle("Rising Flames")
           .setDescription("اختر لعبتك")
-          .setImage("https://i.imgur.com/your-image.png");
+          .setImage(process.env.EMBED_IMAGE || null);
 
         const menu = new StringSelectMenuBuilder()
           .setCustomId("game")
@@ -115,8 +115,6 @@ function setupLobby(client, store) {
 
       // GAME SELECT
       if (i.isStringSelectMenu() && i.customId === "game") {
-        await i.deferReply({ ephemeral: true });
-
         const game = i.values[0];
 
         const row = new ActionRowBuilder().addComponents(
@@ -126,7 +124,10 @@ function setupLobby(client, store) {
             .setLabel("Find Players").setStyle(ButtonStyle.Primary)
         );
 
-        return i.editReply({ content: `Lobby • ${game}`, components: [row] });
+        return i.update({
+          content: `Lobby • ${game}`,
+          components: [row]
+        });
       }
 
       // CREATE BUTTON
@@ -258,16 +259,16 @@ function setupLobby(client, store) {
         return i.showModal(modal);
       }
 
-      // JOIN MODAL
+      // JOIN MODAL (FIXED BUG HERE)
       if (i.isModalSubmit() && i.customId.startsWith("joinmodal:")) {
         await i.deferReply({ ephemeral: true });
 
-        const key = i.customId.split(":")[1];
+        const key = i.customId.replace("joinmodal:", "");
         const data = store.get(key);
         if (!data) return i.editReply("اللوبي غير موجود.");
 
         const uid = i.fields.getTextInputValue("uid");
-        const channelId = key.split(":")[1];
+        const channelId = key.replace("lobby:", "");
         const ch = await i.guild.channels.fetch(channelId);
 
         await ch.permissionOverwrites.edit(i.user.id, {
@@ -283,7 +284,7 @@ function setupLobby(client, store) {
         return i.editReply(`تم إدخالك ${ch}`);
       }
 
-      // ====== BUTTON CONTROLS ======
+      // BUTTON CONTROLS
       if (i.isButton() &&
         (i.customId.startsWith("lock:") ||
          i.customId.startsWith("unlock:") ||
