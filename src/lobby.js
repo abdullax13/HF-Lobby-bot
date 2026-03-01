@@ -71,7 +71,7 @@ function buildLobbyEmbed(data) {
       `الأعضاء: ${data.members.length}/5\n` +
       `المالك: <@${data.owner}>`
     )
-    .setImage("https://i.imgur.com/your-image.png");
+    .setImage("https://i.imgur.com/JkWND0m.png");
 }
 
 function buildControls(channelId) {
