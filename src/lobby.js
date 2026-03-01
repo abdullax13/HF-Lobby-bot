@@ -29,6 +29,16 @@ function findUserLobby(store, userId) {
   );
 }
 
+async function getDisplayName(guild, userId) {
+  const cached = guild.members.cache.get(userId);
+  if (cached?.user) return cached.user.globalName || cached.user.username;
+
+  const fetched = await guild.members.fetch(userId).catch(() => null);
+  if (fetched?.user) return fetched.user.globalName || fetched.user.username;
+
+  return userId; // fallback
+}
+
 async function registerCommands() {
   const cmd = new SlashCommandBuilder()
     .setName("setup")
@@ -78,8 +88,7 @@ function buildControls(channelId) {
 
     new ButtonBuilder()
       .setCustomId(`transfer:${channelId}`)
-      .setLabel("نقل ملكية")
-      .setEmoji("🏷️")
+      .setLabel("نقل 👑")
       .setStyle(ButtonStyle.Secondary),
 
     new ButtonBuilder()
@@ -222,11 +231,17 @@ function setupLobby(client, store) {
         if (!lobbies.length)
           return i.reply({ content: "لا يوجد لوبيات.", ephemeral: true });
 
-        const options = lobbies.map(l => ({
-          label: l.value.uid,
-          value: l.key,
-          description: `${l.value.locked ? "🔴" : "🟢"} ${l.value.members.length}/5`,
-        }));
+        // ✅ label = يوزر المالك فقط
+        const options = await Promise.all(
+          lobbies.map(async (l) => {
+            const ownerName = await getDisplayName(i.guild, l.value.owner);
+            return {
+              label: ownerName.slice(0, 100),
+              value: l.key,
+              description: `${l.value.locked ? "🔴" : "🟢"} ${l.value.members.length}/5`,
+            };
+          })
+        );
 
         const menu = new StringSelectMenuBuilder()
           .setCustomId("join")
@@ -361,9 +376,18 @@ function setupLobby(client, store) {
           if (i.user.id !== data.owner)
             return i.reply({ content: "فقط المالك يستطيع نقل الملكية.", ephemeral: true });
 
-          const options = data.members
-            .filter(m => m.id !== data.owner)
-            .map(m => ({ label: m.id, value: m.id }));
+          // ✅ الخيارات تظهر يوزرات الأعضاء بدل ID
+          const options = await Promise.all(
+            data.members
+              .filter(m => m.id !== data.owner)
+              .map(async (m) => {
+                const name = await getDisplayName(i.guild, m.id);
+                return {
+                  label: name.slice(0, 100),
+                  value: m.id
+                };
+              })
+          );
 
           if (!options.length)
             return i.reply({ content: "لا يوجد أعضاء.", ephemeral: true });
