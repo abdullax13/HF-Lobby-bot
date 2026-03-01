@@ -34,11 +34,15 @@ async function registerCommands() {
     .setName("setup")
     .setDescription("إعداد روم اللوبي")
     .addChannelOption(o =>
-      o.setName("panel").setDescription("روم اللوبي panel")
-        .setRequired(true).addChannelTypes(ChannelType.GuildText))
+      o.setName("panel")
+        .setDescription("روم اللوبي panel")
+        .setRequired(true)
+        .addChannelTypes(ChannelType.GuildText))
     .addChannelOption(o =>
-      o.setName("category").setDescription("كاتيجوري الرومات")
-        .setRequired(true).addChannelTypes(ChannelType.GuildCategory))
+      o.setName("category")
+        .setDescription("كاتيجوري الرومات")
+        .setRequired(true)
+        .addChannelTypes(ChannelType.GuildCategory))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
   const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
@@ -66,18 +70,23 @@ function buildControls(channelId) {
       .setCustomId(`lock:${channelId}`)
       .setLabel("Lock")
       .setStyle(ButtonStyle.Danger),
+
     new ButtonBuilder()
       .setCustomId(`unlock:${channelId}`)
       .setLabel("Unlock")
       .setStyle(ButtonStyle.Success),
+
     new ButtonBuilder()
       .setCustomId(`transfer:${channelId}`)
-      .setLabel("Transfer")
+      .setLabel("نقل ملكية")
+      .setEmoji("🏷️")
       .setStyle(ButtonStyle.Secondary),
+
     new ButtonBuilder()
       .setCustomId(`close:${channelId}`)
       .setLabel("Close")
       .setStyle(ButtonStyle.Secondary),
+
     new ButtonBuilder()
       .setCustomId(`leave:${channelId}`)
       .setLabel("Leave")
@@ -143,8 +152,7 @@ function setupLobby(client, store) {
       // CREATE BUTTON
       if (i.isButton() && i.customId.startsWith("create:")) {
 
-        const existing = findUserLobby(store, i.user.id);
-        if (existing)
+        if (findUserLobby(store, i.user.id))
           return i.reply({ content: "أنت داخل لوبي بالفعل.", ephemeral: true });
 
         const game = i.customId.split(":")[1];
@@ -167,7 +175,6 @@ function setupLobby(client, store) {
 
       // CREATE MODAL
       if (i.isModalSubmit() && i.customId.startsWith("modal:")) {
-        await i.deferReply({ ephemeral: true });
 
         const category = store.get("categoryId");
         const game = i.customId.split(":")[1];
@@ -201,12 +208,11 @@ function setupLobby(client, store) {
 
         await ch.send(`UID صاحب اللوبي: **${uid}**`);
 
-        return i.editReply(`تم إنشاء اللوبي ${ch}`);
+        return i.reply({ content: `تم إنشاء اللوبي ${ch}`, ephemeral: true });
       }
 
       // FIND
       if (i.isButton() && i.customId.startsWith("find:")) {
-        await i.deferReply({ ephemeral: true });
 
         const game = i.customId.split(":")[1];
 
@@ -214,7 +220,7 @@ function setupLobby(client, store) {
           .filter(x => x.key.startsWith("lobby:") && x.value.game === game);
 
         if (!lobbies.length)
-          return i.editReply("لا يوجد لوبيات.");
+          return i.reply({ content: "لا يوجد لوبيات.", ephemeral: true });
 
         const options = lobbies.map(l => ({
           label: l.value.uid,
@@ -227,12 +233,13 @@ function setupLobby(client, store) {
           .setPlaceholder("اختر لوبي")
           .addOptions(options);
 
-        return i.editReply({
-          components: [new ActionRowBuilder().addComponents(menu)]
+        return i.reply({
+          components: [new ActionRowBuilder().addComponents(menu)],
+          ephemeral: true
         });
       }
 
-      // JOIN
+      // JOIN SELECT
       if (i.isStringSelectMenu() && i.customId === "join") {
 
         const key = i.values[0];
@@ -245,9 +252,8 @@ function setupLobby(client, store) {
         if (isFull(data))
           return i.reply({ content: "اللوبي ممتلئ.", ephemeral: true });
 
-        const existing = findUserLobby(store, i.user.id);
-        if (existing)
-          return i.reply({ content: "أنت داخل لوبي آخر بالفعل.", ephemeral: true });
+        if (findUserLobby(store, i.user.id))
+          return i.reply({ content: "أنت داخل لوبي آخر.", ephemeral: true });
 
         const modal = new ModalBuilder()
           .setCustomId(`joinmodal:${key}`)
@@ -267,11 +273,10 @@ function setupLobby(client, store) {
 
       // JOIN MODAL
       if (i.isModalSubmit() && i.customId.startsWith("joinmodal:")) {
-        await i.deferReply({ ephemeral: true });
 
         const key = i.customId.replace("joinmodal:", "");
         const data = store.get(key);
-        if (!data) return i.editReply("اللوبي غير موجود.");
+        if (!data) return i.reply({ content: "اللوبي غير موجود.", ephemeral: true });
 
         const uid = i.fields.getTextInputValue("uid");
         const channelId = key.replace("lobby:", "");
@@ -285,85 +290,32 @@ function setupLobby(client, store) {
         data.members.push({ id: i.user.id, uid });
         store.set(key, data);
 
+        try {
+          const msg = await ch.messages.fetch(data.messageId);
+          await msg.edit({
+            embeds: [buildLobbyEmbed(data)],
+            components: [buildControls(channelId)]
+          });
+        } catch {}
+
         await ch.send(`UID اللاعب <@${i.user.id}>: **${uid}**`);
 
-        return i.editReply(`تم إدخالك ${ch}`);
+        return i.reply({ content: `تم إدخالك ${ch}`, ephemeral: true });
       }
 
-      // CONTROLS
-      if (i.isButton() &&
-        ["lock", "unlock", "close", "leave", "transfer"]
-          .some(a => i.customId.startsWith(a))) {
+      // TRANSFER SELECT
+      if (i.isStringSelectMenu() && i.customId.startsWith("transferselect:")) {
 
-        await i.deferReply({ ephemeral: true });
-
-        const [action, channelId] = i.customId.split(":");
+        const channelId = i.customId.split(":")[1];
         const key = lobbyKey(channelId);
         const data = store.get(key);
-        if (!data) return i.editReply("اللوبي غير موجود.");
+        if (!data) return i.reply({ content: "اللوبي غير موجود.", ephemeral: true });
+
+        const newOwnerId = i.values[0];
+        data.owner = newOwnerId;
+        store.set(key, data);
 
         const ch = await i.guild.channels.fetch(channelId);
-
-        if (action === "lock") {
-          if (i.user.id !== data.owner)
-            return i.editReply("فقط المالك يستطيع القفل.");
-          data.locked = true;
-        }
-
-        if (action === "unlock") {
-          if (i.user.id !== data.owner)
-            return i.editReply("فقط المالك يستطيع الفتح.");
-          data.locked = false;
-        }
-
-        if (action === "close") {
-          if (i.user.id !== data.owner)
-            return i.editReply("فقط المالك يستطيع الإغلاق.");
-          await ch.delete();
-          store.del(key);
-          return i.editReply("تم إغلاق اللوبي.");
-        }
-
-        if (action === "leave") {
-          const leavingOwner = i.user.id === data.owner;
-
-          data.members = data.members.filter(m => m.id !== i.user.id);
-          await ch.permissionOverwrites.delete(i.user.id).catch(() => {});
-
-          if (data.members.length === 0) {
-            await ch.delete();
-            store.del(key);
-            return i.editReply("تم حذف اللوبي لعدم وجود أعضاء.");
-          }
-
-          if (leavingOwner) {
-            const newOwner = data.members[0];
-            data.owner = newOwner.id;
-            await ch.send(`تم نقل ملكية اللوبي إلى <@${newOwner.id}> تلقائياً.`);
-          }
-        }
-
-        if (action === "transfer") {
-          if (i.user.id !== data.owner)
-            return i.editReply("فقط المالك يستطيع نقل الملكية.");
-
-          const modal = new ModalBuilder()
-            .setCustomId(`transfermodal:${channelId}`)
-            .setTitle("نقل الملكية")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("member")
-                  .setLabel("اكتب ID العضو")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-              )
-            );
-
-          return i.showModal(modal);
-        }
-
-        store.set(key, data);
 
         try {
           const msg = await ch.messages.fetch(data.messageId);
@@ -373,30 +325,99 @@ function setupLobby(client, store) {
           });
         } catch {}
 
-        return i.editReply("تم التحديث.");
+        await ch.send(`تم نقل ملكية اللوبي إلى <@${newOwnerId}>`);
+
+        return i.reply({ content: "تم نقل الملكية.", ephemeral: true });
       }
 
-      // TRANSFER MODAL
-      if (i.isModalSubmit() && i.customId.startsWith("transfermodal:")) {
-        await i.deferReply({ ephemeral: true });
+      // CONTROLS
+      if (i.isButton()) {
 
-        const channelId = i.customId.split(":")[1];
+        const [action, channelId] = i.customId.split(":");
         const key = lobbyKey(channelId);
         const data = store.get(key);
-        if (!data) return i.editReply("اللوبي غير موجود.");
-
-        const memberId = i.fields.getTextInputValue("member");
-
-        if (!data.members.some(m => m.id === memberId))
-          return i.editReply("هذا العضو ليس داخل اللوبي.");
-
-        data.owner = memberId;
-        store.set(key, data);
+        if (!data) return;
 
         const ch = await i.guild.channels.fetch(channelId);
-        await ch.send(`تم نقل ملكية اللوبي إلى <@${memberId}>`);
 
-        return i.editReply("تم نقل الملكية.");
+        if (action === "lock") {
+          if (i.user.id !== data.owner)
+            return i.reply({ content: "فقط المالك يستطيع القفل.", ephemeral: true });
+
+          data.locked = true;
+          store.set(key, data);
+        }
+
+        if (action === "unlock") {
+          if (i.user.id !== data.owner)
+            return i.reply({ content: "فقط المالك يستطيع الفتح.", ephemeral: true });
+
+          data.locked = false;
+          store.set(key, data);
+        }
+
+        if (action === "transfer") {
+
+          if (i.user.id !== data.owner)
+            return i.reply({ content: "فقط المالك يستطيع نقل الملكية.", ephemeral: true });
+
+          const options = data.members
+            .filter(m => m.id !== data.owner)
+            .map(m => ({ label: m.id, value: m.id }));
+
+          if (!options.length)
+            return i.reply({ content: "لا يوجد أعضاء.", ephemeral: true });
+
+          const menu = new StringSelectMenuBuilder()
+            .setCustomId(`transferselect:${channelId}`)
+            .setPlaceholder("اختر العضو")
+            .addOptions(options);
+
+          return i.reply({
+            components: [new ActionRowBuilder().addComponents(menu)],
+            ephemeral: true
+          });
+        }
+
+        if (action === "leave") {
+
+          const leavingOwner = i.user.id === data.owner;
+
+          data.members = data.members.filter(m => m.id !== i.user.id);
+          await ch.permissionOverwrites.delete(i.user.id).catch(() => {});
+
+          if (!data.members.length) {
+            await ch.delete();
+            store.del(key);
+            return i.reply({ content: "تم حذف اللوبي.", ephemeral: true });
+          }
+
+          if (leavingOwner) {
+            data.owner = data.members[0].id;
+            await ch.send(`تم نقل الملكية تلقائياً إلى <@${data.owner}>`);
+          }
+
+          store.set(key, data);
+        }
+
+        if (action === "close") {
+          if (i.user.id !== data.owner)
+            return i.reply({ content: "فقط المالك يستطيع الإغلاق.", ephemeral: true });
+
+          await ch.delete();
+          store.del(key);
+          return i.reply({ content: "تم إغلاق اللوبي.", ephemeral: true });
+        }
+
+        try {
+          const msg = await ch.messages.fetch(data.messageId);
+          await msg.edit({
+            embeds: [buildLobbyEmbed(data)],
+            components: [buildControls(channelId)]
+          });
+        } catch {}
+
+        return i.reply({ content: "تم التحديث.", ephemeral: true });
       }
 
     } catch (e) {
